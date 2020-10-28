@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Oct 26 11:18:36 2020
+Credit: williamscott701
+https://github.com/williamscott701/DL-TM/blob/master/lda2.py
 
-@author: Emmett
+(C) Mathieu Blondel - 2010
+License: BSD 3 clause
+Implementation of the collapsed Gibbs sampler for
+Latent Dirichlet Allocation, as described in
+Finding scientifc topics (Griffiths and Steyvers)
 """
 
 import numpy as np
