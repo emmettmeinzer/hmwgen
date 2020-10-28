@@ -7,12 +7,14 @@ Created on Wed Oct  7 15:50:55 2020
 
 import json
 import nltk
-#import lda2
+nltk.download('wordnet')
+import LDA_Sampler
 import string
 import copy
 import pandas as pd
 import numpy as np
 import keras.backend as K
+import matplotlib.pyplot as plt
 
 from keras import regularizers
 from keras.models import Model
@@ -27,6 +29,33 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
 from sklearn.feature_extraction.text import TfidfVectorizer
 from keras.layers import Dense, Activation, Embedding, LSTM
+
+make_singularRoot = nltk.stem.WordNetLemmatizer()
+remove_ws = nltk.tokenize.WhitespaceTokenizer()
+stoplist = set('a about above after again against all am an and any are arent\
+               as also at be because been before being below between both but\
+               by cant cannot could couldnt did didnt do does doesnt doing dont\
+               down during each els few for from further had hadnt has have havent\
+               having he hed hes her here heres hers herself him himself his\
+               how hows i id ill im ive if in into is isnt it its itself lets\
+               me more most mustnt my myself no nor not of off on once only or\
+               other ought our ours ourselves out over own same shant she shes\
+               should shouldnt so some such than that thats the their theirs\
+               them themselves then there theres these they theyd theyll theyre\
+               theyve this those through to too under until up very was wasnt\
+               we wed were weve were werent what whats when whens which while\
+               who whos whom why whys with wont would wouldnt you youd youll\
+               youre youve your yours yourself yourselves ll ve s ar mayb ha re\
+               us thi isn a b c d e f g h i j k l m n o p q r s t u v w x y z\
+               hi will can get [deleted]\
+               1 2 3 4 5 6 7 8 9 10'.split())
+
+def preprocess(pd):
+    pd = pd.str.lower()
+    pd = pd.str.replace('[{}]'.format(string.punctuation), ' ')
+    pd = pd.apply(lambda x: [make_singularRoot.lemmatize(w) for w in remove_ws.tokenize(x)])
+    pd = pd.apply(lambda x: [item for item in x if item not in stoplist])
+    return pd.str.join(' ')
 
 def get_x_lstm(max_vocab, vocab):
     tokenizer = Tokenizer(nb_words = max_vocab, lower=True, split=' ')
@@ -48,9 +77,12 @@ def word_indices(wordOccuranceVec):
 
 #maximum number of features
 MAX_VOCAB_SIZE = 100
-def processCorpus(samples, window_size = 5, MAX_VOCAB_SIZE = MAX_VOCAB_SIZE):
+def processComments(samples, window_size = 5, MAX_VOCAB_SIZE = MAX_VOCAB_SIZE):
+    #Convert the collection of comments to a matrix of token counts
     vectorizer = CountVectorizer(analyzer="word", tokenizer = None)
+    #Learn the vocabulary dictionary and return term-document matrix
     train_data_features = vectorizer.fit_transform(samples)
+    #Array mapping from feature integer indices to feature name
     words = vectorizer.get_feature_names()
     vocab = dict(zip(words, np.arange(len(words))))
     inv_vocab = dict(zip(np.arange(len(words)), words))
@@ -76,36 +108,43 @@ while (sampNum < 186):
     #final = stem_text(temp3)
     corpus.append(final)
     sampNum += 1
+    
+data = pd.read_csv('keyword_comment_cleaned.csv')
 
-stoplist = set('a about above after again against all am an and any are arent\
-               as also at be because been before being below between both but\
-               by cant cannot could couldnt did didnt do does doesnt doing dont\
-               down during each els few for from further had hadnt has have havent\
-               having he hed hes her here heres hers herself him himself his\
-               how hows i id ill im ive if in into is isnt it its itself lets\
-               me more most mustnt my myself no nor not of off on once only or\
-               other ought our ours ourselves out over own same shant she shes\
-               should shouldnt so some such than that thats the their theirs\
-               them themselves then there theres these they theyd theyll theyre\
-               theyve this those through to too under until up very was wasnt\
-               we wed were weve were werent what whats when whens which while\
-               who whos whom why whys with wont would wouldnt you youd youll\
-               youre youve your yours yourself yourselves ll ve s ar mayb ha re\
-               us thi isn a b c d e f g h i j k l m n o p q r s t u v w x y z\
-               hi will can get back go don wa let atc ok ani mi thei whenev make\
-               just take aw know sai good baltimor jetblu lol thank thanks like\
-               vari might less highest billion nice probabl lot fuck shit sure\
-               feel dure befor realli work veri chanc see awai onc onli dy aren\
-               100 someth thing even happen becaus wai everi much help want think\
-               fear flight plane fly mai time dai\
-               1 2 3 4 5 6 7 8 9 10'.split())
+user_ids = list(data.comment_parent_id.unique())
+post_ids = list(data.post_id.unique())
 
-corpusList = [i for item in corpus for i in item.split()]
-matrix, vocabulary, words = processCorpus(corpusList)
+num_user_ids = len(user_ids)
+num_post_ids = len(post_ids)
+
+comment_score = np.zeros((num_user_ids, num_post_ids))
+
+for idx, i in enumerate(data[["comment_parent_id", "comment_score", "post_id"]].values):
+    comment_score[user_ids.index(i[0])][post_ids.index(i[2])] = i[1]
+        
+comment_score_normalized = comment_score/max(data.comment_score)
+
+comments = [""] * num_post_ids
+
+for i in data[["post_id", "comment_body"]].values:
+    comments[post_ids.index(i[0])] += i[1]
+comments = pd.DataFrame(comments)
+comments = preprocess(comments[0])
+comments.shape
+
+#corpusList = [i for item in corpus for i in item.split()]
+matrix, vocabulary, words = processComments(comments)
+num_topics = 9
+lambda_param = 0.8
+user_weights = np.random.rand(num_topics, num_user_ids)
+post_weights = np.random.rand(num_topics, num_post_ids)
+
+beta = 0.01
+alpha = 10*np.ones(num_topics)/num_topics
 
 #standardize text -- makes all characters lowercase and removes common words
 texts = [[word for word in document.lower().split() if word not in stoplist]
-        for document in corpus]
+        for document in comments]
 
 #count number of times that word appears in corpus
 #pair frequency with respective word in new array
@@ -143,9 +182,11 @@ for doc in corpus_tfidf:
         None
     else:
         print(doc)
+        
+lda = LDA_Sampler.LdaSampler(n_topics=num_topics, matrix_shape=matrix.shape, lambda_param=lambda_param)
 
-lda = models.LdaModel(bow_corpus, id2word=dictionary, num_topics=9)
-corpus_LDA = lda[bow_corpus]
+lda_model = models.LdaModel(bow_corpus, id2word=dictionary, num_topics=9)
+corpus_LDA = lda_model[bow_corpus]
 
 print(corpus_LDA)
 
@@ -155,7 +196,7 @@ lstm_out = 128
 batch_size = 8
 p_embedding_lstm = 200
 
-X = get_x_lstm(MAX_VOCAB_SIZE, corpusList)
+X = get_x_lstm(MAX_VOCAB_SIZE, comments.values)
 
 #Sequential: linear stack of layers
 #Embedding: turns positive integers (indexes) into dense vectors of fixed size
@@ -169,9 +210,9 @@ X = get_x_lstm(MAX_VOCAB_SIZE, corpusList)
 #Compile: compile source into code object that can be executed by exec() or eval()
 
 model = Sequential()
-model.add(Embedding(MAX_VOCAB_SIZE, p_embedding_lstm, input_length = X.shape[0]))
+model.add(Embedding(MAX_VOCAB_SIZE, p_embedding_lstm, input_length = X.shape[1]))
 model.add(LSTM(lstm_out, dropout = 0.2))
-model.add(Dense(5, activation = 'tanh', name = "doc_latent_vector", kernel_regularizer = regularizers.l2()))
+model.add(Dense(num_topics, activation = 'tanh', name = "doc_latent_vector", kernel_regularizer = regularizers.l2()))
 model.compile(loss = 'mean_squared_error', optimizer = 'rmsprop', metrics = ['accuracy'])
 model.summary()
 
@@ -184,9 +225,89 @@ def get_last_layer_op():
     return intermediate_layer_model.predict(X)
 
 "LOSS"
+def get_l1():
+    l1 = 0
+    for i in range(num_user_ids):
+        for j in range(num_post_ids):
+            if comment_score_normalized[i][j] > 0:
+                l1 += (comment_score_normalized[i][j] - np.dot(user_weights.T[i], post_weights.T[j]))**2
+    return l1
 
+def get_l3():
+    return LA.norm(user_weights, 'fro')
 
+def get_l4():
+    return LA.norm(post_weights.T - get_last_layer_op(), 'fro')
 
-#PMF??
-#HFT??
-#LSTM
+l3_coeff = l4_coeff = 0.1
+def get_total_loss():
+    return (get_l1() + l3_coeff*get_l3() + l4_coeff*get_l4())
+
+def gradient_V(lda, lstm_last_layer):
+    param_k = 0.1
+    peakiness = 1
+    lambda_t = 0.01
+    param_Nj = matrix.sum(axis=1)
+    param_njk = lda.nmz.copy()
+    dt_distribution = lda.theta()
+    
+    diff_lv = []
+    for j in range(num_post_ids):
+        temp_sums = [0]*num_topics
+        for i in range(num_user_ids):
+            if comment_score_normalized[i][j] != 0:
+                temp_sums += (comment_score_normalized[i][j] - np.dot(user_weights.T[i], post_weights.T[j]))*user_weights.T[i]
+        temp_sums += 2*l4_coeff*(post_weights.T[j] - lstm_last_layer[j])
+        temp_sums -= lambda_t*peakiness*(param_njk[j] - param_Nj[j]*dt_distribution[j].sum())
+        diff_lv.append(list(temp_sums))
+    diff_lv = np.array(diff_lv)
+    return diff_lv
+    
+def gradient_U():
+    diff_lu = []
+    for i in range(num_user_ids):
+        temp_sums = [0]*num_topics
+        for j in range(num_post_ids):
+            if comment_score_normalized[i][j] != 0:
+                temp_sums += (comment_score_normalized[i][j] - np.dot(user_weights.T[i], post_weights.T[j]))*post_weights.T[j]
+        temp_sums += 2*l3_coeff*user_weights.T[i]
+        diff_lu.append(list(temp_sums))
+    diff_lu = np.array(diff_lu)
+    return diff_lu
+
+def gradient_Phi(lda, phi_weights):
+    param_nkw = lda.nzw.T
+    param_Nk = lda.nzw.sum(axis=1)
+    diff_phi = []
+    for i in range(MAX_VOCAB_SIZE):
+        param_zw = np.exp(phi_weights[i].sum())
+        temp_phi = []
+        for j in range (num_topics):
+            temp_phi.append(param_nkw[i, j] - (param_Nk[j]*np.exp(phi_weights[i, j])/param_zw))
+        diff_phi.append(temp_phi)
+    diff_phi = np.array(diff_phi)
+    return diff_phi
+
+maxiter_hft = 10
+learning_rate_pmf = learning_rate_hft = 0.01
+phi_weights = np.random.rand(MAX_VOCAB_SIZE, num_topics)
+
+iters = 10
+for i in range(iters):
+    lda.run(matrix, maxiter_hft)
+    temp = num_topics
+    for i in range(temp):
+        model.fit(X, post_weights.T, epochs = num_topics, batch_size = 128)
+        lstm_last_layer = get_last_layer_op()
+        
+        print("\nExtracting Gradients...")
+        gradient_v = gradient_V(lda, lstm_last_layer)
+        gradient_u = gradient_U()
+        gradient_phi = gradient_Phi(lda, phi_weights)
+        
+        print("\nUpdating Gradients...")
+        user_weights -= learning_rate_pmf * gradient_u.T
+        post_weights -= learning_rate_pmf * gradient_v.T
+        phi_weights -= learning_rate_hft * gradient_phi
+        
+        print(get_l1(), get_l3(), get_l4())
