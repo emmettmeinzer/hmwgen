@@ -5,7 +5,6 @@ Created on Wed Oct  7 15:50:55 2020
 @author: Emmett
 """
 
-import json
 import nltk
 nltk.download('wordnet')
 import LDA_Sampler
@@ -92,10 +91,12 @@ def processComments(samples, window_size = 5, MAX_VOCAB_SIZE = MAX_VOCAB_SIZE):
 sort = True
 
 import gensim
+"""
 from gensim.parsing.preprocessing import strip_non_alphanum
 from gensim.parsing.preprocessing import strip_punctuation
 from gensim.parsing.preprocessing import strip_multiple_whitespaces
 from gensim.parsing.preprocessing import stem_text
+
 
 corpus = []
 sampNum = 1
@@ -108,6 +109,7 @@ while (sampNum < 186):
     #final = stem_text(temp3)
     corpus.append(final)
     sampNum += 1
+"""
     
 data = pd.read_csv('keyword_comment_cleaned.csv')
 
@@ -136,12 +138,19 @@ comments.shape
 matrix, vocabulary, words = processComments(comments)
 num_topics = 9
 lambda_param = 0.8
+
+#Probabilistic Matrix Factorization (PMF)
+#From paper: "effective recommendation model that uses matrix factorization (MF) 
+#technique to find the latent features of users and items from a probabilistic perspective"
+#create user latent vector
 user_weights = np.random.rand(num_topics, num_user_ids)
+#create item (in this case, posts) latent vector
 post_weights = np.random.rand(num_topics, num_post_ids)
 
 beta = 0.01
 alpha = 10*np.ones(num_topics)/num_topics
 
+##############################################################################
 #standardize text -- makes all characters lowercase and removes common words
 texts = [[word for word in document.lower().split() if word not in stoplist]
         for document in comments]
@@ -182,16 +191,16 @@ for doc in corpus_tfidf:
         None
     else:
         print(doc)
-        
-lda = LDA_Sampler.LdaSampler(n_topics=num_topics, matrix_shape=matrix.shape, lambda_param=lambda_param)
 
 lda_model = models.LdaModel(bow_corpus, id2word=dictionary, num_topics=9)
 corpus_LDA = lda_model[bow_corpus]
 
 print(corpus_LDA)
+##############################################################################
+
+lda = LDA_Sampler.LdaSampler(n_topics=num_topics, matrix_shape=matrix.shape, lambda_param=lambda_param)
 
 "Long Short Term Memory"
-
 lstm_out = 128
 batch_size = 8
 p_embedding_lstm = 200
@@ -224,33 +233,47 @@ def get_last_layer_op():
     intermediate_layer_model = Model(inputs=model.input, outputs=model.get_layer('doc_latent_vector').output)
     return intermediate_layer_model.predict(X)
 
-"LOSS"
+#PMF Loss function
+#L = summation(Iij*(Rij - Rij_hat)^2)
+#Regularization parameter: Iij = 1
+#Normalized post rating: Rij
+#Predicted post rating: Rij_hat; dot product of user latent vector and post latent vector (Rij_hat = u_i*v_i)
 def get_l1():
     l1 = 0
     for i in range(num_user_ids):
         for j in range(num_post_ids):
-            if comment_score_normalized[i][j] > 0:
+            if comment_score_normalized[i][j] != 0:
                 l1 += (comment_score_normalized[i][j] - np.dot(user_weights.T[i], post_weights.T[j]))**2
     return l1
 
+#matrix normalization -- square root of the sum of the absolute squares of its elements
 def get_l3():
     return LA.norm(user_weights, 'fro')
 
+#matrix normalization -- square root of the sum of the absolute squares of its elements
 def get_l4():
     return LA.norm(post_weights.T - get_last_layer_op(), 'fro')
 
+#set regularization parameters
 l3_coeff = l4_coeff = 0.1
+#From paper: loss function is the summation of these three individual loss calculations
 def get_total_loss():
     return (get_l1() + l3_coeff*get_l3() + l4_coeff*get_l4())
 
+#Optimization
+
+#topic parameters: k, njk, Nj
+#njk: the number of times when topic k occurs in the document of item j
+#Nj:  the total number of words in document
+#k = peakiness: control the transformation between item vector v and topic distribution θ
+#diff_lv: partial derivative of Loss function wrt rating-based latent vector v
 def gradient_V(lda, lstm_last_layer):
-    param_k = 0.1
     peakiness = 1
     lambda_t = 0.01
     param_Nj = matrix.sum(axis=1)
     param_njk = lda.nmz.copy()
     dt_distribution = lda.theta()
-    
+    #refer to equation 7 in the paper
     diff_lv = []
     for j in range(num_post_ids):
         temp_sums = [0]*num_topics
@@ -262,7 +285,9 @@ def gradient_V(lda, lstm_last_layer):
         diff_lv.append(list(temp_sums))
     diff_lv = np.array(diff_lv)
     return diff_lv
-    
+
+#diff_lu: partial derivative of Loss function wrt user latent vector u
+#Refer to equation 9 in the paper
 def gradient_U():
     diff_lu = []
     for i in range(num_user_ids):
@@ -275,6 +300,13 @@ def gradient_U():
     diff_lu = np.array(diff_lu)
     return diff_lu
 
+#phi: word distribution
+#nkw: the number of times that word w occurs in topic k
+#Nw is the word vocabulary size of the document corpus
+#Nk is the number of words in topic k; nj,k is the number of times when topic k occurs in the document of item j
+#zw: corresponding normalizers defined at end of Section 4
+#diff_phi: partial derivative of Loss function wrt word distribution phi
+#Refer to equation 10 in the paper
 def gradient_Phi(lda, phi_weights):
     param_nkw = lda.nzw.T
     param_Nk = lda.nzw.sum(axis=1)
@@ -292,11 +324,15 @@ maxiter_hft = 10
 learning_rate_pmf = learning_rate_hft = 0.01
 phi_weights = np.random.rand(MAX_VOCAB_SIZE, num_topics)
 
+#Paper gives 30 iterations as optimum number of cycles
+#It takes far too long for my computer to run
+#After 3 iterations, an exploding gradient issue becomes prevalent
 iters = 10
 for i in range(iters):
     lda.run(matrix, maxiter_hft)
     temp = num_topics
     for i in range(temp):
+        #tries to fit dataset X
         model.fit(X, post_weights.T, epochs = num_topics, batch_size = 128)
         lstm_last_layer = get_last_layer_op()
         
