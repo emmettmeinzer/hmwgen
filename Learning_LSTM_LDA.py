@@ -327,7 +327,7 @@ phi_weights = np.random.rand(MAX_VOCAB_SIZE, num_topics)
 #Paper gives 30 iterations as optimum number of cycles
 #It takes far too long for my computer to run
 #After 3 iterations, loss trends towards infinity
-iters = 3
+iters = 10
 for i in range(iters):
     lda.run(matrix, maxiter_hft)
     temp = num_topics
