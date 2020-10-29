@@ -255,7 +255,7 @@ def get_l4():
     return LA.norm(post_weights.T - get_last_layer_op(), 'fro')
 
 #set regularization parameters
-l3_coeff = l4_coeff = 0.1
+l3_coeff = l4_coeff = 0.01
 #From paper: loss function is the summation of these three individual loss calculations
 def get_total_loss():
     return (get_l1() + l3_coeff*get_l3() + l4_coeff*get_l4())
@@ -326,8 +326,8 @@ phi_weights = np.random.rand(MAX_VOCAB_SIZE, num_topics)
 
 #Paper gives 30 iterations as optimum number of cycles
 #It takes far too long for my computer to run
-#After 3 iterations, an exploding gradient issue becomes prevalent
-iters = 10
+#After 3 iterations, loss trends towards infinity
+iters = 3
 for i in range(iters):
     lda.run(matrix, maxiter_hft)
     temp = num_topics
@@ -347,3 +347,22 @@ for i in range(iters):
         phi_weights -= learning_rate_hft * gradient_phi
         
         print(get_l1(), get_l3(), get_l4())
+
+
+'Create a Data Set from which the Model will make its Prediction'        
+data_predict = pd.read_csv('test_input.csv')
+
+post_ids_predict = list(data_predict.post_id.unique())
+num_post_ids_predict = len(post_ids_predict)
+
+comments_predict = [""] * num_post_ids_predict
+
+for i in data_predict[["post_id", "comment_body"]].values:
+    comments_predict[post_ids_predict.index(i[0])] += i[1]
+comments_predict = pd.DataFrame(comments_predict)
+comments_predict = preprocess(comments_predict[0])
+comments_predict.shape
+
+test_input = get_x_lstm(MAX_VOCAB_SIZE, comments_predict.values)
+test_output = model.predict(test_input, verbose=0)
+print(test_output)
