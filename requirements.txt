@@ -1,0 +1,9 @@
+nltk==3.5
+numpy==1.19.5
+t5==0.8.1
+tensorflow==2.4.0
+textblob==0.15.3
+tokenizer==0.9.4
+torch==1.7.1
+transformers==4.4.1
+pandas==1.2.0
