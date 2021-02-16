@@ -901,7 +901,7 @@ def text_generator(path_to_file):
         filepath=checkpoint_prefix,
         save_weights_only=True)
     
-    EPOCHS = 10
+    EPOCHS = 100
     history = model.fit(dataset, epochs=EPOCHS, callbacks=[checkpoint_callback])
     
     class OneStep(tf.keras.Model):
@@ -1024,7 +1024,7 @@ def recursive_generator(good_pos_markov, bad_pos_markov, pos, good_word_markov, 
             
     return gen_text
     
-cycles = 3
+cycles = 5
 count = 0
 len_tracker = []
 keep_all = []
